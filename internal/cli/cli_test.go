@@ -1,9 +1,9 @@
 package cli
 
 import (
+	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"taxsend/internal/crypto"
@@ -63,10 +63,36 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 
 func runCapture(args []string) ([]byte, error) {
 	root := NewRootCmd()
-	buf := &strings.Builder{}
-	root.SetOut(buf)
-	root.SetErr(buf)
 	root.SetArgs(args)
-	err := root.Execute()
-	return []byte(buf.String()), err
+
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	stderrR, stderrW, err := os.Pipe()
+	if err != nil {
+		_ = stdoutR.Close()
+		_ = stdoutW.Close()
+		return nil, err
+	}
+	oldStdout, oldStderr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = stdoutW, stderrW
+	root.SetOut(stdoutW)
+	root.SetErr(stderrW)
+	err = root.Execute()
+	_ = stdoutW.Close()
+	_ = stderrW.Close()
+	os.Stdout, os.Stderr = oldStdout, oldStderr
+
+	stdoutData, readErr := io.ReadAll(stdoutR)
+	if readErr != nil {
+		return nil, readErr
+	}
+	stderrData, readErr := io.ReadAll(stderrR)
+	if readErr != nil {
+		return nil, readErr
+	}
+	_ = stdoutR.Close()
+	_ = stderrR.Close()
+	return append(stdoutData, stderrData...), err
 }

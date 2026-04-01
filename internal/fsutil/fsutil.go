@@ -3,6 +3,7 @@ package fsutil
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -22,7 +23,7 @@ func CreateAtomic(path string, force bool) (*os.File, string, error) {
 	if err := EnsureNotExists(path, force); err != nil {
 		return nil, "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, "", err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".taxsend-*")
@@ -34,6 +35,54 @@ func CreateAtomic(path string, force bool) (*os.File, string, error) {
 
 func CommitAtomic(tmpPath, finalPath string) error {
 	return os.Rename(tmpPath, finalPath)
+}
+
+func PrepareOutputPath(path string, force bool) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	_, err := os.Stat(path)
+	if err == nil {
+		if !force {
+			return fmt.Errorf("%s already exists (use --force to overwrite)", path)
+		}
+		return os.Remove(path)
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+func CommitAtomicForce(tmpPath, finalPath string, force bool) error {
+	if err := PrepareOutputPath(finalPath, force); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, finalPath)
+}
+
+func WriteFileAtomic(path string, data []byte, perm fs.FileMode, force bool) error {
+	tmp, tmpPath, err := CreateAtomic(path, force)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpPath)
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return CommitAtomicForce(tmpPath, path, force)
+}
+
+func EnsurePrivateDir(path string) error {
+	return os.MkdirAll(path, 0o700)
 }
 
 func SafeJoin(baseDir, tarPath string) (string, error) {

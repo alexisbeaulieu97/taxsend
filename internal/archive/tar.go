@@ -105,10 +105,10 @@ func ExtractTar(r io.Reader, outDir string, force bool) (int, error) {
 		if err := fsutil.EnsureNotExists(target, force); err != nil {
 			return count, err
 		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 			return count, err
 		}
-		f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, h.FileInfo().Mode().Perm())
+		f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, privateFilePerm(h.FileInfo().Mode().Perm()))
 		if err != nil {
 			return count, err
 		}
@@ -121,4 +121,12 @@ func ExtractTar(r io.Reader, outDir string, force bool) (int, error) {
 		}
 		count++
 	}
+}
+
+func privateFilePerm(src fs.FileMode) fs.FileMode {
+	perm := fs.FileMode(0o600)
+	if src.Perm()&0o100 != 0 {
+		perm |= 0o100
+	}
+	return perm
 }

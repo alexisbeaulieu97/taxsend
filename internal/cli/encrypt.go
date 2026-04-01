@@ -13,16 +13,17 @@ import (
 )
 
 func newEncryptCmd() *cobra.Command {
-	var recipient string
+	var recipients []string
+	var recipientsFile string
 	var output string
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "encrypt --recipient age1... [files/dirs...]",
-		Short: "Encrypt files/directories into one .tar.age artifact",
+		Short: "Low-level compatibility: encrypt files/directories into one .tar.age artifact",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p := getPrinter(cmd.Context())
-			r, err := crypto.ParseRecipient(recipient)
+			parsedRecipients, err := crypto.ParseRecipients(recipients, recipientsFile)
 			if err != nil {
 				return err
 			}
@@ -42,26 +43,26 @@ func newEncryptCmd() *cobra.Command {
 			go func() {
 				pw.CloseWithError(archive.WriteTar(pw, files))
 			}()
-			if err := crypto.EncryptStream(tmpFile, pr, r); err != nil {
+			if err := crypto.EncryptStream(tmpFile, pr, parsedRecipients...); err != nil {
 				_ = tmpFile.Close()
 				return err
 			}
 			if err := tmpFile.Close(); err != nil {
 				return err
 			}
-			if err := fsutil.CommitAtomic(tmpPath, output); err != nil {
+			if err := fsutil.CommitAtomicForce(tmpPath, output, force); err != nil {
 				return err
 			}
 			p.Success("encryption complete")
-			fmt.Printf("files: %d\noutput: %s\nrecipient: %s\n", len(files), output, recipient)
+			fmt.Printf("files: %d\noutput: %s\nrecipients: %d\n", len(files), output, len(parsedRecipients))
 			p.Warn("artifact contents are encrypted, but output filename and size remain visible")
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&recipient, "recipient", "", "age recipient (age1...)")
+	cmd.Flags().StringArrayVar(&recipients, "recipient", nil, "age recipient (repeatable)")
+	cmd.Flags().StringVar(&recipientsFile, "recipients-file", "", "path to a file containing one native age recipient per line")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "output .tar.age path")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite existing output file")
-	_ = cmd.MarkFlagRequired("recipient")
-	cmd.Example = `taxsend encrypt --recipient age1abc... --output 2025-tax-docs.tar.age T4.pdf RL1.pdf`
+	cmd.Example = `taxsend encrypt --recipient age1abc... --recipient age1def... --output 2025-tax-docs.tar.age T4.pdf RL1.pdf`
 	return cmd
 }
